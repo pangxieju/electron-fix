@@ -9,6 +9,10 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pangxieju/electron-fix"
+  },
   "keywords": [
     "electron",
     "electron-helper",
@@ -22,5 +26,8 @@
     "chalk": "^2.4.2",
     "commander": "^2.20.0",
     "ora": "^4.0.3"
+  },
+  "bugs": {
+    "url": "https://github.com/pangxieju/electron-fix/issues/new"
   }
 }
