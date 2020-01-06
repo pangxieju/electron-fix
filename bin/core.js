@@ -11,7 +11,7 @@ const TMPDIR = tmpdir();
 const OUTDIR = '/node_modules/electron/';
 const PATH_TXT = {
   'darwin': 'Electron.app/Contents/MacOS/Electron',
-  'win32': 'electron/exe'
+  'win32': 'electron.exe'
 };
 
 
