@@ -8,11 +8,21 @@
 Using npm:
 
 ```bash
-$ npm install electron-fix
+$ npm install electron-fix -g
 ```
 
 Start:
 
 ```bash
-$ electron-fix  start
+$ electron-fix start
+```
+
+or `package.json` add:
+```
+"scripts": {
+  "fix": "electron-fix start"
+}
+```
+```bash
+$ npm run fix
 ```
