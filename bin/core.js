@@ -6,7 +6,7 @@ const axios = require('axios');
 const chalk = require('chalk');
 const ora = require('ora');
 
-const ORIGIN = 'https://npm.taobao.org/mirrors/electron/';
+const ORIGIN = 'https://npmmirror.com/mirrors/electron/';
 const TMPDIR = tmpdir();
 const OUTDIR = '/node_modules/electron/';
 const PATH_TXT = {
