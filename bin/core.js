@@ -90,8 +90,12 @@ const unzip = (entry, output) => {
     throw 'File does not exist!';
   }
   
-  return new Promise((resolve, reject) => {
-    exec(`unzip -o ${entry} -d ${output}`, error => {
+ return new Promise((resolve, reject) => {
+    const command = process.platform === 'win32'
+      ? `powershell -Command "Expand-Archive -Path '${entry}' -DestinationPath '${output}' -Force"`
+      : `unzip -o ${entry} -d ${output}`;
+
+    exec(command, (error) => {
       if (error) {
         console.error(`exec error: ${error}`);
         reject(error);
