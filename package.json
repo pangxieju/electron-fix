@@ -1,6 +1,6 @@
 {
   "name": "electron-fix",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "description": "Special area error fixed.",
   "main": "index.js",
   "bin": {
@@ -22,7 +22,7 @@
   "author": "pangxieju",
   "license": "MIT",
   "dependencies": {
-    "axios": ">=0.21.1",
+    "axios": "^1.10.0",
     "chalk": "^2.4.2",
     "commander": "^2.20.0",
     "ora": "^4.0.3"

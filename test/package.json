@@ -1,0 +1,17 @@
+{
+  "name": "electron-fix-test",
+  "version": "1.0.0",
+  "description": "electron-fix test",
+  "scripts": {
+    "fix": "electron-fix start",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "electron": "^7.1.7"
+  },
+  "devDependencies": {
+    "electron-fix": "file:.."
+  },
+  "author": "pangxieju",
+  "license": "MIT"
+}

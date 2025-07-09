@@ -1,7 +1,7 @@
 const { writeFile, accessSync, constants, createWriteStream } = require('fs');
 const { platform, arch, tmpdir } = require('os');
 const { resolve } = require('path');
-const { exec,execSync } = require('child_process');
+const { exec, execSync } = require('child_process');
 const axios = require('axios');
 const chalk = require('chalk');
 const ora = require('ora');
