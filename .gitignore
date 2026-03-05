@@ -12,3 +12,5 @@ node_modules/
 # Optional npm cache directory
 .npm
 
+# pnpm workspace test fixture lockfile
+test-pnpm-workspace/pnpm-lock.yaml
