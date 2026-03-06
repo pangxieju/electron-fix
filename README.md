@@ -11,11 +11,19 @@ Using npm:
 $ npm install electron-fix -g
 ```
 
+Using pnpm:
+
+```bash
+$ pnpm add -D electron-fix
+```
+
 Start:
 
 ```bash
 $ electron-fix start
 ```
+
+Supports npm, yarn, and **pnpm workspace** (including `catalog:` protocol).
 
 or `package.json` add:
 ```

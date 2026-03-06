@@ -1,14 +1,14 @@
-const { writeFile, accessSync, constants, createWriteStream } = require('fs');
+const { writeFile, accessSync, constants, createWriteStream, readFileSync, existsSync, readdirSync } = require('fs');
 const { platform, arch, tmpdir } = require('os');
-const { resolve } = require('path');
+const { resolve, dirname, join } = require('path');
 const { exec, execSync } = require('child_process');
+const { createRequire } = require('module');
 const axios = require('axios');
 const chalk = require('chalk');
 const ora = require('ora');
 
 const ORIGIN = 'https://npmmirror.com/mirrors/electron/';
 const TMPDIR = tmpdir();
-const OUTDIR = '/node_modules/electron/';
 const PATH_TXT = {
   'darwin': 'Electron.app/Contents/MacOS/Electron',
   'win32': 'electron.exe'
@@ -31,12 +31,159 @@ const fsExistsSync = (filePath) => {
 
 
 /**
+ * hasElectronDependency
+ * @param  {Object} pkg package.json object
+ * @return {Boolean}
+*/
+const hasElectronDependency = (pkg) => {
+  const { dependencies = {}, devDependencies = {} } = pkg;
+  return !!(dependencies.electron || devDependencies.electron);
+};
+
+
+/**
+ * expandWorkspacePattern - Expand pnpm workspace pattern (e.g. packages/*) to directories
+ * @param  {String} pattern - Glob-like pattern path
+ * @return {String[]} - Array of directory paths
+*/
+const expandWorkspacePattern = (pattern) => {
+  const results = [];
+  const lastStar = pattern.lastIndexOf('*');
+  if (lastStar === -1) {
+    if (existsSync(pattern)) results.push(resolve(pattern));
+    return results;
+  }
+  const baseDir = dirname(pattern);
+  const suffix = pattern.slice(lastStar + 1);
+  if (!existsSync(baseDir)) return results;
+  try {
+    const entries = readdirSync(baseDir, { withFileTypes: true });
+    for (const ent of entries) {
+      if (ent.isDirectory() && !ent.name.startsWith('.')) {
+        const fullPath = join(baseDir, ent.name, suffix);
+        if (existsSync(join(fullPath, 'package.json'))) {
+          results.push(resolve(fullPath));
+        }
+      }
+    }
+  } catch (e) {}
+  return results;
+};
+
+
+/**
+ * findProjectContext - Find package.json with electron, supports pnpm workspace
+ * @param  {String} cwd - Starting directory (default: process.cwd())
+ * @return {Object} { pkg, pwd, packageJsonPath }
+*/
+const findProjectContext = (cwd = process.cwd()) => {
+  let dir = resolve(cwd);
+
+  // Walk up to find package.json with electron
+  while (dir !== dirname(dir)) {
+    const packageJsonPath = join(dir, 'package.json');
+    if (existsSync(packageJsonPath)) {
+      try {
+        const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+        if (hasElectronDependency(pkg)) {
+          return { pkg, pwd: dir + (dir.endsWith('/') || dir.endsWith('\\') ? '' : '/'), packageJsonPath };
+        }
+      } catch (e) {
+        // Invalid JSON, continue
+      }
+    }
+
+    // Check pnpm workspace - find workspace packages that have electron
+    const workspaceYamlPath = join(dir, 'pnpm-workspace.yaml');
+    if (existsSync(workspaceYamlPath)) {
+      try {
+        const content = readFileSync(workspaceYamlPath, 'utf-8');
+        const packagesMatch = content.match(/packages:\s*([\s\S]*?)(?=\n\w|\n#|$)/);
+        if (packagesMatch) {
+          const packagesGlob = packagesMatch[1].trim().split('\n')
+            .map(line => line.replace(/^[\s-]+/, '').trim().replace(/['"]/g, ''))
+            .filter(Boolean);
+          for (const pattern of packagesGlob) {
+            const expanded = expandWorkspacePattern(join(dir, pattern));
+            for (const pkgDir of expanded) {
+              const pkgPath = join(pkgDir, 'package.json');
+              if (existsSync(pkgPath)) {
+                try {
+                  const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+                  if (hasElectronDependency(pkg)) {
+                    const pwd = pkgDir + (pkgDir.endsWith('/') || pkgDir.endsWith('\\') ? '' : '/');
+                    return { pkg, pwd, packageJsonPath: pkgPath };
+                  }
+                } catch (e) {}
+              }
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    dir = dirname(dir);
+  }
+
+  // Fallback: use cwd's package.json if it has electron
+  const packageJsonPath = join(resolve(cwd), 'package.json');
+  if (existsSync(packageJsonPath)) {
+    try {
+      const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+      if (hasElectronDependency(pkg)) {
+        return { pkg, pwd: resolve(cwd) + '/', packageJsonPath };
+      }
+    } catch (e) {}
+  }
+
+  return null;
+};
+
+
+/**
+ * getVersionFromCatalog - Parse electron version from pnpm-workspace.yaml catalog
+ * @param  {String} workspaceRoot - Path to workspace root
+ * @return {String|undefined}
+*/
+const getVersionFromCatalog = (workspaceRoot) => {
+  const workspaceYamlPath = join(workspaceRoot, 'pnpm-workspace.yaml');
+  if (!existsSync(workspaceYamlPath)) return undefined;
+
+  try {
+    const content = readFileSync(workspaceYamlPath, 'utf-8');
+    const electronMatch = content.match(/\belectron:\s*['"]?([^'"\s#\n]+)['"]?/);
+    if (electronMatch) {
+      return electronMatch[1].replace(/^[\^~]/, '');
+    }
+  } catch (e) {}
+  return undefined;
+};
+
+
+/**
+ * resolveElectronPath - Get electron install path using Node's module resolution (works with pnpm)
+ * @param  {String} pwd - Project directory
+ * @return {String|undefined} - Path to electron package directory
+*/
+const resolveElectronPath = (pwd) => {
+  try {
+    const req = createRequire(join(pwd, 'package.json'));
+    const electronPkgPath = req.resolve('electron/package.json');
+    return dirname(electronPkgPath);
+  } catch (e) {
+    return undefined;
+  }
+};
+
+
+/**
  * setFileName
- * @param  {Object / String} version symbols
+ * @param  {Object / String} data - version symbols
+ * @param  {String} pwd - Project directory
  * @return {String}
 */
-const setFileName = (data) => {
-  const version = getVersion(data);
+const setFileName = (data, pwd) => {
+  const version = getVersion(data, pwd);
   if (!data || !version) throw 'version is undefined';
 
   if (typeof data === 'string') return data;
@@ -109,78 +256,101 @@ const unzip = (entry, output) => {
 
 /**
  * isInstallElectron
- * @param  {Object} package
- * @param  {String} electronPackagePath
+ * @param  {Object} pkg - package.json object
+ * @param  {String} electronPackagePath - Path to electron/package.json
+ * @param  {String} electronPath - Resolved electron path (from resolveElectronPath, for pnpm)
  * @return {Boolean}
 */
-const isInstallElectron = (package, electronPackagePath) => {
-  if (package.PWD && !fsExistsSync(electronPackagePath)) {
-    return false;
-  }
-
-  const { dependencies, devDependencies } = package;
-  if (
-    (dependencies && dependencies.electron) ||
-    (devDependencies && devDependencies.electron)
-  ) {
+const isInstallElectron = (pkg, electronPackagePath, electronPath) => {
+  if (electronPath && fsExistsSync(join(electronPath, 'package.json'))) {
     return true;
   }
-  return false;
+  if (pkg.PWD && !fsExistsSync(electronPackagePath)) {
+    return false;
+  }
+  const { dependencies, devDependencies } = pkg;
+  return !!(
+    (dependencies && dependencies.electron) ||
+    (devDependencies && devDependencies.electron)
+  );
 };
 
 
 /**
  * getVersion
- * @param  {Object} data
+ * @param  {Object} data - package.json data
+ * @param  {String} pwd - Project directory (for resolving electron in pnpm workspace)
  * @return {String} result string
 */
-const getVersion = (data) => {
-  const { dependencies, devDependencies } = data;
-  let version = '';
+const getVersion = (data, pwd) => {
+  const projectDir = pwd ? resolve(pwd) : process.cwd();
 
-  // Extract declared version from either dependencies or devDependencies
-  if (dependencies?.electron) {
-    version = dependencies.electron;
-  } else if (devDependencies?.electron) {
-    version = devDependencies.electron;
+  // 1. Try to get version from actually installed electron (works with npm/yarn/pnpm)
+  const electronPath = resolveElectronPath(projectDir);
+  if (electronPath) {
+    try {
+      const electronPkg = JSON.parse(readFileSync(join(electronPath, 'package.json'), 'utf-8'));
+      if (electronPkg.version) {
+        return electronPkg.version;
+      }
+    } catch (e) {}
   }
 
-  // Handle "catalog:" format (monorepo specific)
+  const { dependencies, devDependencies } = data || {};
+  let version = dependencies?.electron || devDependencies?.electron || '';
+
+  // 2. Handle "catalog:" format (pnpm workspace catalog)
   if (version === 'catalog:' || version.startsWith('catalog:')) {
-    try {
-      // Execute pnpm command to get installed Electron details
-      const output = execSync('pnpm list electron --depth Infinity --json', {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'ignore'] // Suppress error output
-      });
-
-      const packages = JSON.parse(output);
-
-      // Find Electron version in dependency tree
-      for (const pkg of packages) {
-        if (pkg.devDependencies?.electron) {
-          return pkg.devDependencies.electron.version;
-        }
-        if (pkg.dependencies?.electron) {
-          return pkg.dependencies.electron.version;
-        }
-      }
-    } catch (error) {
-      console.warn('Failed to retrieve Electron version via pnpm:', error.message);
+    const workspaceRoot = findWorkspaceRoot(projectDir);
+    if (workspaceRoot) {
+      const catalogVersion = getVersionFromCatalog(workspaceRoot);
+      if (catalogVersion) return catalogVersion;
     }
 
-    // Fallback to parsing catalog format if pnpm method fails
+    try {
+      const output = execSync('pnpm list electron --depth Infinity --json', {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'ignore'],
+        cwd: projectDir
+      });
+      const parsed = JSON.parse(output);
+      const packages = Array.isArray(parsed) ? parsed : (parsed.dependencies || [parsed]);
+      for (const pkg of packages) {
+        const dep = pkg?.devDependencies?.electron || pkg?.dependencies?.electron;
+        if (dep?.version) return dep.version;
+      }
+    } catch (error) {
+      // Ignore
+    }
+
     if (version.startsWith('catalog:')) {
       return version.split(':')[1] || '';
     }
   }
 
-  // Remove version prefix characters (^/~) if present
-  if (/^[\^~]/.test(version)) {
+  // 3. Remove version prefix characters (^/~) if present
+  if (version && /^[\^~]/.test(version)) {
     return version.substring(1);
   }
 
   return version;
+};
+
+
+/**
+ * findWorkspaceRoot - Find pnpm workspace root directory
+ * @param  {String} startDir
+ * @return {String|undefined}
+*/
+const findWorkspaceRoot = (startDir) => {
+  let dir = resolve(startDir);
+  while (dir !== dirname(dir)) {
+    if (existsSync(join(dir, 'pnpm-workspace.yaml'))) {
+      return dir;
+    }
+    dir = dirname(dir);
+  }
+  return undefined;
 };
 
 /**
@@ -207,25 +377,25 @@ const writeConfig = (output, data) => {
 
 /**
  * fixElectron
- * @param  {Object}
+ * @param  {Object} data
  * required:
- *   PWD[string]
- *   version[string]
+ *   PWD[string] - Project directory
  * other:
  *   pathTxt[Object]
  *   symbols[string]
  *   origin[string]
 */
 const fixElectron = (data) => {
-  const version = getVersion(data);
-  const fileName = setFileName(data) + '.zip';
-  const outDir = data.PWD + OUTDIR;
-  const electronPackagePath = resolve(outDir, 'package.json');
+  const pwd = data.PWD ? resolve(data.PWD) : process.cwd();
+  const electronPath = resolveElectronPath(pwd) || join(pwd, 'node_modules', 'electron');
+  const electronPackagePath = join(electronPath, 'package.json');
+  const version = getVersion(data, pwd);
+  const fileName = setFileName(data, pwd) + '.zip';
 
   console.log(chalk.default.bold('Electron version:', version));
   const loading = ora(chalk.yellow('Loading...')).start();
 
-  if (isInstallElectron(data, electronPackagePath)) {
+  if (isInstallElectron(data, electronPackagePath, electronPath)) {
     const downloadUrl = (data.origin || ORIGIN) + version + '/' + fileName;
     const downloadDir = resolve(data.entry || TMPDIR, fileName);
 
@@ -235,8 +405,8 @@ const fixElectron = (data) => {
       loading.succeed(chalk.green('Download Electron successful!'));
 
       const zipEntry = resolve(TMPDIR, fileName);
-      const zipOutput = resolve(outDir, 'dist');
-      const configOutput = resolve(outDir, 'path.txt');
+      const zipOutput = join(electronPath, 'dist');
+      const configOutput = join(electronPath, 'path.txt');
       const configData = Object.assign({}, PATH_TXT, data.pathTxt || {});
 
       Promise.all([
@@ -257,7 +427,7 @@ const fixElectron = (data) => {
     loading.fail(`You didn't install electron!`);
     console.log(
       chalk.yellow.bold(
-        `Try it 'yarn add electron' or 'npm install electron -D'.`
+        `Try it 'pnpm add electron -D' or 'npm install electron -D' or 'yarn add electron -D'.`
       )
     );
   }
@@ -270,5 +440,7 @@ module.exports = {
   isInstallElectron,
   getVersion,
   writeConfig,
-  fixElectron
+  fixElectron,
+  findProjectContext,
+  resolveElectronPath
 };
