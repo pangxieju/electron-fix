@@ -11,7 +11,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/pangxieju/electron-fix"
+    "url": "git+https://github.com/pangxieju/electron-fix.git"
   },
   "keywords": [
     "electron",
